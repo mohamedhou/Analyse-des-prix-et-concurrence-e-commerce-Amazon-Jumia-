@@ -6,6 +6,7 @@ Avec CSS personnalisé
 import streamlit as st
 import os
 from pathlib import Path
+import pandas as pd
 
 # ===== CHARGEMENT DU CSS =====
 def load_css():
@@ -35,42 +36,7 @@ st.set_page_config(
 # Charger le CSS
 load_css()
 
-# ===== SESSION STATE INITIAL =====
-if 'debug_mode' not in st.session_state:
-    st.session_state.debug_mode = False
-
 # ===== FONCTIONS UTILITAIRES =====
-def display_debug_info(df):
-    """Affiche les informations de debug"""
-    with st.expander("🔍 Informations de Debug", expanded=False):
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Lignes totales", len(df))
-            st.metric("Colonnes", len(df.columns))
-        
-        with col2:
-            st.metric("Marques uniques", df['brand'].nunique())
-            st.metric("Catégories uniques", df['category'].nunique())
-        
-        with col3:
-            st.metric("Prix moyen", f"{df['prix'].mean():.2f}€")
-            st.metric("Sentiment moyen", f"{df['sentiment_score'].mean():.2f}/5")
-        
-        # Aperçu des données
-        st.subheader("Aperçu des données (5 premières lignes)")
-        st.dataframe(df.head(), use_container_width=True)
-        
-        # Types de données
-        st.subheader("Types de données")
-        type_info = pd.DataFrame({
-            'Colonne': df.columns,
-            'Type': df.dtypes.astype(str),
-            'Valeurs nulles': df.isnull().sum().values,
-            'Valeurs uniques': df.nunique().values
-        })
-        st.dataframe(type_info, use_container_width=True)
-
 # ===== HEADER AVEC STYLE =====
 st.markdown("""
 <div style="text-align: center; padding: 2rem 0; background: linear-gradient(90deg, #1e3a8a, #3b82f6); 
@@ -103,7 +69,7 @@ with st.sidebar:
     }
     
     for page_name, page_file in pages.items():
-        if st.button(f"**{page_name}**", use_container_width=True, type="primary"):
+        if st.button(f"**{page_name}**", width='stretch', type="primary"):
             st.switch_page(f"pages/{page_file}.py")
     
     st.markdown("---")
@@ -121,16 +87,6 @@ with st.sidebar:
         </p>
     </div>
     """, unsafe_allow_html=True)
-    
-    # Mode debug
-    st.markdown("---")
-    if st.button("🐛 Mode Debug", use_container_width=True, type="secondary"):
-        st.session_state.debug_mode = not st.session_state.debug_mode
-    
-    if st.session_state.debug_mode:
-        st.success("Mode Debug activé")
-    else:
-        st.info("Mode Debug désactivé")
 
 # ===== CONTENU PRINCIPAL =====
 try:
@@ -184,10 +140,6 @@ try:
                 </div>
             </div>
             """, unsafe_allow_html=True)
-        
-        # Mode debug
-        if st.session_state.debug_mode:
-            display_debug_info(df)
         
         # Section d'introduction
         st.markdown("---")
@@ -263,13 +215,13 @@ try:
         """, unsafe_allow_html=True)
         
 except Exception as e:
-    st.error(f"""
+    st.markdown(f"""
     <div style="background: #fee2e2; padding: 1.5rem; border-radius: 8px; border-left: 4px solid #dc2626;">
         <h3 style="color: #991b1b; margin-top: 0;">❌ Erreur de chargement</h3>
         <p style="color: #7f1d1d;"><strong>Détails :</strong> {str(e)}</p>
         <p style="color: #7f1d1d;">Vérifiez la structure de vos données ou exécutez le script de debug.</p>
     </div>
-    """, unsafe_allow_html=True)
+    """)
 
 # ===== FOOTER STYLÉ =====
 st.markdown("---")

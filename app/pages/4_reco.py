@@ -5,7 +5,18 @@ Système de Recommandation Intelligent
 import streamlit as st
 import pandas as pd
 import numpy as np
+from pathlib import Path
 from utils.load_data import load_processed_data, get_brand_list, get_category_list
+
+# Charger le CSS
+def load_css():
+    css_path = Path(__file__).parent.parent / "styles.css"
+    if css_path.exists():
+        with open(css_path) as f:
+            st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+
+load_css()
+
 
 # Configuration de la page
 st.set_page_config(
