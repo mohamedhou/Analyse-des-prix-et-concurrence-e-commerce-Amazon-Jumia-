@@ -44,7 +44,7 @@ st.markdown("""
     <h1 style="color: white; margin-bottom: 0.5rem;">📊 Dashboard d'Analyse E-commerce</h1>
     <p style="color: rgba(255,255,255,0.9); font-size: 1.1rem; max-width: 800px; margin: 0 auto;">
     <strong>Analyse concurrentielle entre marques</strong> - Samsung, Apple, Xiaomi, etc.
-    <br>Données extraites d'Amazon et Jumia • Projet académique d'excellence
+    <br>Données extraites d'Amazon et Jumia •
     </p>
 </div>
 """, unsafe_allow_html=True)
@@ -227,7 +227,7 @@ except Exception as e:
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #6b7280; padding: 1rem 0; font-size: 0.9rem;">
-    <p><strong>Projet académique d'excellence - Analyse E-commerce</strong></p>
+    <p><strong>Projet - Analyse E-commerce</strong></p>
     <p>Technologies : Streamlit • Pandas • Seaborn • Matplotlib • Plotly • NLP Transformers</p>
     <p style="margin-top: 0.5rem;">
         <span class="badge badge-primary">Version 1.0</span>

@@ -194,7 +194,7 @@ p {
 
 /* Academic branding header */
 [data-testid="stSidebar"]::before {
-    content: '📚 ACADEMIC PROJECT';
+    content: '  MKF';
     position: absolute;
     top: 20px;
     left: 50%;
