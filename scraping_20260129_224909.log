@@ -1,0 +1,15 @@
+2026-01-29 22:49:09,751 - INFO - 
+================================================================================
+2026-01-29 22:49:09,771 - INFO - ================================================================================
+2026-01-29 23:28:51,303 - INFO - 
+================================================================================
+2026-01-29 23:28:51,305 - INFO - ================================================================================
+2026-01-29 23:28:51,309 - ERROR - Future exception was never retrieved
+future: <Future finished exception=TargetClosedError('Target page, context or browser has been closed')>
+playwright._impl._errors.TargetClosedError: Target page, context or browser has been closed
+2026-01-29 23:28:51,397 - INFO - 
+================================================================================
+2026-01-29 23:28:51,406 - INFO - ================================================================================
+2026-01-29 23:29:23,707 - ERROR - Future exception was never retrieved
+future: <Future finished exception=TargetClosedError('Target page, context or browser has been closed')>
+playwright._impl._errors.TargetClosedError: Target page, context or browser has been closed

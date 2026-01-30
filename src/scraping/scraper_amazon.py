@@ -1,475 +1,499 @@
-"""
-Scraper Amazon amélioré pour l'analyse de prix et concurrence e-commerce
-Author: Votre Nom
-Date: 2026-01-29
-
-Améliorations principales:
-- Gestion robuste des erreurs avec retry logic
-- Logging détaillé pour le débogage
-- Extraction de données enrichies (vendeur, disponibilité, nombre d'avis, etc.)
-- Anti-détection amélioré (rotation user-agents, délais aléatoires)
-- Validation et nettoyage des données
-- Export multi-format (CSV, JSON, Excel)
-- Configuration via fichier de config
-"""
-
 import pandas as pd
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 import time
 import random
 import logging
-from datetime import datetime
 from pathlib import Path
-import json
-import re
-from typing import Optional, Dict, List
-from dataclasses import dataclass, asdict
 import sys
+from datetime import datetime
+import json
+from typing import Optional, Dict, List
 
-# Configuration du logging
+# --- CONFIGURATION AUTOMATIQUE DES CHEMINS ---
+# --- CONFIGURATION AUTOMATIQUE DES CHEMINS (VERSION BLINDÉE) ---
+import os
+
+# 1. On cherche d'abord où on est
+current_path = Path(__file__).resolve()
+project_root = current_path.parent
+
+# 2. On remonte les dossiers jusqu'à trouver 'requirements.txt' (la racine du projet)
+# C'est la méthode la plus fiable pour ne jamais se tromper de dossier
+found_root = False
+for _ in range(5): # On cherche sur 5 niveaux max
+    if (project_root / "requirements.txt").exists():
+        found_root = True
+        break
+    project_root = project_root.parent
+
+# 3. Si on ne trouve pas (cas bizarre), on prend le dossier où tu as lancé la commande
+if not found_root:
+    print("⚠️ Racine du projet non détectée via le fichier, utilisation du dossier courant.")
+    PROJECT_ROOT = Path.cwd()
+else:
+    PROJECT_ROOT = project_root
+
+# 4. Définition des dossiers de sortie
+DATA_DIR = PROJECT_ROOT / "data" / "raw"
+LOGS_DIR = PROJECT_ROOT / "logs"
+
+# Création physique des dossiers s'ils n'existent pas
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+print(f"📂 Dossier du projet détecté : {PROJECT_ROOT}")
+print(f"📂 Dossier de sauvegarde des données : {DATA_DIR}")
+
+# --- CONFIGURATION LOGGING AVANCÉE ---
+sys.stdout.reconfigure(encoding='utf-8')
+log_file = LOGS_DIR / f"scraper_amazon_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(f'scraping_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'),
+        logging.FileHandler(log_file, encoding='utf-8'),
         logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger(__name__)
 
-
-@dataclass
-class ProductData:
-    """Structure de données pour un produit Amazon"""
-    titre: str
-    prix: Optional[str] = None
-    prix_original: Optional[str] = None  # Prix barré s'il existe
-    reduction: Optional[str] = None
-    note: Optional[float] = None
-    nombre_avis: Optional[int] = None
-    vendeur: Optional[str] = None
-    prime: bool = False
-    disponibilite: Optional[str] = None
-    lien: Optional[str] = None
-    asin: Optional[str] = None  # Identifiant unique Amazon
-    image_url: Optional[str] = None
-    date_scraping: str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    source: str = "Amazon"
-    
-    def to_dict(self) -> Dict:
-        """Convertit en dictionnaire"""
-        return asdict(self)
-
-
-class AmazonScraperConfig:
-    """Configuration du scraper"""
-    
-    # User agents pour rotation
-    USER_AGENTS = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
-    ]
-    
-    # Délais aléatoires (en secondes)
-    MIN_DELAY = 2
-    MAX_DELAY = 5
-    
-    # Retry configuration
-    MAX_RETRIES = 3
-    RETRY_DELAY = 5
-    
-    # Timeouts
-    PAGE_TIMEOUT = 60000
-    ELEMENT_TIMEOUT = 10000
-    
-    # Chemins
-    DATA_DIR = Path("../../data/raw")
-    LOGS_DIR = Path("../../logs")
-
+# --- CONFIGURATION ANTI-DÉTECTION ---
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15"
+]
 
 class AmazonScraper:
-    """Scraper Amazon avec fonctionnalités avancées"""
+    """
+    Scraper Amazon professionnel avec fonctionnalités avancées :
+    - Anti-détection robuste
+    - Extraction enrichie (vendeur, disponibilité, livraison)
+    - Gestion d'erreurs complète
+    - Logging détaillé
+    - Support multi-devises
+    """
     
-    def __init__(self, config: AmazonScraperConfig = None):
-        self.config = config or AmazonScraperConfig()
-        self._ensure_directories()
-        self.products_scraped = 0
-        self.errors_count = 0
-        
-    def _ensure_directories(self):
-        """Crée les dossiers nécessaires"""
-        self.config.DATA_DIR.mkdir(parents=True, exist_ok=True)
-        self.config.LOGS_DIR.mkdir(parents=True, exist_ok=True)
-        
-    def _get_random_user_agent(self) -> str:
-        """Retourne un user agent aléatoire"""
-        return random.choice(self.config.USER_AGENTS)
+    def __init__(self, headless: bool = False, slow_mo: int = 100):
+        """
+        Args:
+            headless: Mode sans interface graphique
+            slow_mo: Ralentissement en ms pour paraître plus humain
+        """
+        self.headless = headless
+        self.slow_mo = slow_mo
+        self.stats = {
+            'total_products': 0,
+            'successful_extractions': 0,
+            'failed_extractions': 0,
+            'pages_scraped': 0
+        }
     
-    def _human_delay(self):
-        """Ajoute un délai aléatoire pour simuler un comportement humain"""
-        delay = random.uniform(self.config.MIN_DELAY, self.config.MAX_DELAY)
-        time.sleep(delay)
-        
-    def _extract_price(self, price_text: str) -> Optional[float]:
-        """Extrait et nettoie le prix"""
+    def _get_random_delays(self) -> tuple:
+        """Génère des délais aléatoires pour simuler un comportement humain"""
+        scroll_delay = random.uniform(1.5, 3.0)
+        page_delay = random.uniform(2.5, 5.0)
+        action_delay = random.uniform(0.5, 1.5)
+        return scroll_delay, page_delay, action_delay
+    
+    def _clean_price(self, price_text: str) -> Optional[float]:
+        """
+        Nettoie et convertit le prix en float
+        Gère : '19,99 €', '1 234,56 €', etc.
+        """
         if not price_text:
             return None
         try:
-            # Nettoie le texte: "12,99 €" -> 12.99
-            price_cleaned = re.sub(r'[^\d,]', '', price_text)
-            price_cleaned = price_cleaned.replace(',', '.')
-            return float(price_cleaned)
-        except (ValueError, AttributeError):
+            # Enlever le symbole € et espaces
+            clean = price_text.replace('€', '').replace(' ', '').strip()
+            # Remplacer virgule par point et enlever espaces insécables
+            clean = clean.replace(',', '.').replace('\xa0', '')
+            return float(clean)
+        except ValueError:
+            logger.warning(f"Prix impossible à convertir : {price_text}")
             return None
     
     def _extract_rating(self, rating_text: str) -> Optional[float]:
-        """Extrait la note"""
+        """
+        Extrait la note numérique depuis '4,5 sur 5 étoiles'
+        """
         if not rating_text:
             return None
         try:
-            # "4,5 sur 5 étoiles" -> 4.5
-            match = re.search(r'(\d+[,\.]\d+)', rating_text)
-            if match:
-                return float(match.group(1).replace(',', '.'))
-        except (ValueError, AttributeError):
-            return None
-        return None
-    
-    def _extract_review_count(self, text: str) -> Optional[int]:
-        """Extrait le nombre d'avis"""
-        if not text:
-            return None
-        try:
-            # "1 234" -> 1234
-            count_cleaned = re.sub(r'[^\d]', '', text)
-            return int(count_cleaned) if count_cleaned else None
-        except (ValueError, AttributeError):
+            # Prendre le premier nombre avant 'sur'
+            parts = rating_text.split('sur')[0].strip()
+            parts = parts.replace(',', '.')
+            return float(parts)
+        except (ValueError, IndexError):
+            logger.warning(f"Note impossible à extraire : {rating_text}")
             return None
     
-    def _extract_asin(self, url: str) -> Optional[str]:
-        """Extrait l'ASIN (identifiant Amazon) depuis l'URL"""
-        if not url:
-            return None
-        match = re.search(r'/dp/([A-Z0-9]{10})', url)
-        return match.group(1) if match else None
-    
-    def _accept_cookies(self, page):
-        """Gère la bannière de cookies"""
-        try:
-            cookie_selectors = [
-                "#sp-cc-accept",
-                "#sp-cc-rejectall-link",
-                "button[id='a-autoid-0-announce']"
-            ]
-            
-            for selector in cookie_selectors:
-                if page.locator(selector).is_visible(timeout=3000):
-                    page.click(selector)
-                    logger.info("🍪 Cookies gérés")
-                    time.sleep(1)
-                    return True
-        except Exception as e:
-            logger.debug(f"Pas de bannière cookies ou erreur: {e}")
-        return False
-    
-    def _extract_product_data(self, product_element) -> Optional[ProductData]:
-        """Extrait toutes les données d'un produit"""
-        try:
-            # Titre
-            title_el = product_element.query_selector("h2 a span")
-            titre = title_el.inner_text().strip() if title_el else None
-            
-            if not titre:
-                return None
-            
-            # Lien et ASIN
-            link_el = product_element.query_selector("h2 a")
-            lien = None
-            asin = None
-            if link_el:
-                href = link_el.get_attribute("href")
-                lien = f"https://www.amazon.fr{href}" if href else None
-                asin = self._extract_asin(href)
-            
-            # Prix actuel
-            price_el = product_element.query_selector(".a-price .a-offscreen")
-            prix_text = price_el.inner_text() if price_el else None
-            prix = self._extract_price(prix_text)
-            
-            # Prix original (si réduction)
-            prix_original = None
-            prix_original_el = product_element.query_selector(".a-price.a-text-price .a-offscreen")
-            if prix_original_el:
-                prix_original_text = prix_original_el.inner_text()
-                prix_original = self._extract_price(prix_original_text)
-            
-            # Réduction
-            reduction = None
-            reduction_el = product_element.query_selector(".a-badge-text")
-            if reduction_el:
-                reduction = reduction_el.inner_text().strip()
-            
-            # Note
-            rating_el = product_element.query_selector("i.a-icon-star-small span.a-icon-alt")
-            rating_text = rating_el.inner_text() if rating_el else None
-            note = self._extract_rating(rating_text)
-            
-            # Nombre d'avis
-            review_count_el = product_element.query_selector("span[aria-label*='étoiles']")
-            nombre_avis = None
-            if review_count_el:
-                review_text = review_count_el.get_attribute("aria-label")
-                nombre_avis = self._extract_review_count(review_text)
-            
-            # Amazon Prime
-            prime = product_element.query_selector("i.a-icon-prime") is not None
-            
-            # Vendeur (parfois disponible)
-            vendeur = None
-            vendeur_el = product_element.query_selector(".a-size-base.a-color-secondary")
-            if vendeur_el:
-                vendeur = vendeur_el.inner_text().strip()
-            
-            # Disponibilité
-            disponibilite = None
-            dispo_el = product_element.query_selector(".a-size-base.a-color-price")
-            if dispo_el:
-                disponibilite = dispo_el.inner_text().strip()
-            
-            # Image
-            image_url = None
-            img_el = product_element.query_selector("img.s-image")
-            if img_el:
-                image_url = img_el.get_attribute("src")
-            
-            return ProductData(
-                titre=titre,
-                prix=prix_text,
-                prix_original=prix_original,
-                reduction=reduction,
-                note=note,
-                nombre_avis=nombre_avis,
-                vendeur=vendeur,
-                prime=prime,
-                disponibilite=disponibilite,
-                lien=lien,
-                asin=asin,
-                image_url=image_url
-            )
-            
-        except Exception as e:
-            logger.warning(f"⚠️ Erreur extraction produit: {e}")
-            self.errors_count += 1
-            return None
-    
-    def scrape_amazon(self, 
-                     keyword: str, 
-                     max_pages: int = 1,
-                     headless: bool = False) -> pd.DataFrame:
+    def _extract_reviews_count(self, reviews_text: str) -> Optional[int]:
         """
-        Scrape les résultats Amazon pour un mot-clé.
+        Extrait le nombre d'avis depuis '1 234' ou '(1 234)'
+        """
+        if not reviews_text:
+            return None
+        try:
+            # Enlever parenthèses et espaces
+            clean = reviews_text.replace('(', '').replace(')', '').replace(' ', '').replace('\xa0', '')
+            return int(clean)
+        except ValueError:
+            logger.warning(f"Nombre d'avis impossible à extraire : {reviews_text}")
+            return None
+    
+    def _extract_product_data(self, card, asin: str) -> Optional[Dict]:
+        """
+        Extraction complète et robuste des données d'un produit
+        """
+        try:
+            product_data = {
+                'asin': asin,
+                'date_scraping': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'source': 'Amazon'
+            }
+            
+            # 1. TITRE (Multi-stratégie)
+            title = None
+            title_selectors = [
+                "h2 a span",
+                "h2 span",
+                "a.a-link-normal span.a-text-normal",
+                "a.a-link-normal"
+            ]
+            for selector in title_selectors:
+                if card.locator(selector).count() > 0:
+                    title = card.locator(selector).first.inner_text().strip()
+                    if title and len(title) > 5:  # Validation minimale
+                        break
+            
+            if not title:
+                logger.debug(f"ASIN {asin}: Titre introuvable")
+                return None
+            product_data['titre'] = title
+            
+            # 2. PRIX (Avec nettoyage)
+            price_raw = None
+            if card.locator(".a-price .a-offscreen").count() > 0:
+                price_raw = card.locator(".a-price .a-offscreen").first.inner_text()
+            product_data['prix_brut'] = price_raw
+            product_data['prix'] = self._clean_price(price_raw) if price_raw else None
+            
+            # 3. NOTE
+            rating_raw = None
+            if card.locator("i.a-icon-star-small span.a-icon-alt").count() > 0:
+                rating_raw = card.locator("i.a-icon-star-small span.a-icon-alt").first.inner_text()
+            elif card.locator("span.a-icon-alt").count() > 0:
+                rating_raw = card.locator("span.a-icon-alt").first.inner_text()
+            product_data['note_brute'] = rating_raw
+            product_data['note'] = self._extract_rating(rating_raw) if rating_raw else None
+            
+            # 4. NOMBRE D'AVIS
+            reviews_raw = None
+            reviews_selectors = [
+                "span.a-size-base.s-underline-text",
+                "span[aria-label*='étoiles']",
+                "a span.a-size-base"
+            ]
+            for selector in reviews_selectors:
+                if card.locator(selector).count() > 0:
+                    text = card.locator(selector).first.inner_text()
+                    if text and any(char.isdigit() for char in text):
+                        reviews_raw = text
+                        break
+            product_data['nb_avis_brut'] = reviews_raw
+            product_data['nb_avis'] = self._extract_reviews_count(reviews_raw) if reviews_raw else None
+            
+            # 5. VENDEUR (Important pour analyse concurrence)
+            seller = None
+            if card.locator("span.a-size-base-plus.a-color-base").count() > 0:
+                seller = card.locator("span.a-size-base-plus.a-color-base").first.inner_text()
+            elif card.locator("h5 span").count() > 0:
+                seller_text = card.locator("h5 span").first.inner_text()
+                if "Visiter" in seller_text:
+                    seller = seller_text.replace("Visiter la boutique ", "").strip()
+            product_data['vendeur'] = seller
+            
+            # 6. BADGE PRIME / LIVRAISON
+            is_prime = card.locator("i.a-icon-prime").count() > 0
+            product_data['prime'] = is_prime
+            
+            # 7. DISPONIBILITÉ
+            availability = "En stock"  # Par défaut
+            if card.locator("span.a-color-price").count() > 0:
+                avail_text = card.locator("span.a-color-price").first.inner_text()
+                if "rupture" in avail_text.lower() or "indisponible" in avail_text.lower():
+                    availability = "Rupture de stock"
+            product_data['disponibilite'] = availability
+            
+            # 8. LIEN PRODUIT
+            product_data['lien'] = f"https://www.amazon.fr/dp/{asin}"
+            
+            # 9. IMAGE (Pour analyse visuelle future)
+            image_url = None
+            if card.locator("img.s-image").count() > 0:
+                image_url = card.locator("img.s-image").first.get_attribute("src")
+            product_data['image_url'] = image_url
+            
+            # Validation finale : au minimum titre + (prix OU note)
+            if title and (product_data['prix'] is not None or product_data['note'] is not None):
+                self.stats['successful_extractions'] += 1
+                return product_data
+            else:
+                logger.debug(f"ASIN {asin}: Données insuffisantes")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Erreur extraction ASIN {asin}: {str(e)}")
+            self.stats['failed_extractions'] += 1
+            return None
+    
+    def _handle_cookies_banner(self, page):
+        """Gestion intelligente des cookies"""
+        try:
+            # Attendre max 3 secondes pour la bannière
+            if page.locator("#sp-cc-accept").is_visible(timeout=3000):
+                page.click("#sp-cc-accept")
+                logger.info("🍪 Cookies acceptés")
+                time.sleep(1)
+        except:
+            # Pas de bannière ou timeout, on continue
+            pass
+    
+    def _smart_scroll(self, page):
+        """
+        Scroll intelligent pour charger lazy loading
+        Simule un comportement humain
+        """
+        try:
+            scroll_delay, _, _ = self._get_random_delays()
+            
+            # Scroll par étapes (plus naturel)
+            page.evaluate("""
+                window.scrollTo({
+                    top: document.body.scrollHeight / 2,
+                    behavior: 'smooth'
+                });
+            """)
+            time.sleep(scroll_delay)
+            
+            page.evaluate("""
+                window.scrollTo({
+                    top: document.body.scrollHeight,
+                    behavior: 'smooth'
+                });
+            """)
+            time.sleep(scroll_delay)
+            
+            # Scroll légèrement vers le haut (comportement réaliste)
+            page.evaluate("window.scrollBy(0, -300);")
+            time.sleep(0.5)
+            
+        except Exception as e:
+            logger.warning(f"Erreur lors du scroll : {e}")
+    
+    def scrape(self, keyword: str, max_pages: int = 1, save_json: bool = False) -> pd.DataFrame:
+        """
+        Fonction principale de scraping
         
         Args:
-            keyword: Produit à rechercher
+            keyword: Mot-clé de recherche
             max_pages: Nombre de pages à scraper
-            headless: Mode headless (True) ou visible (False)
+            save_json: Sauvegarder aussi en JSON pour backup
             
         Returns:
-            DataFrame avec les données collectées
+            DataFrame avec les produits scrapés
         """
-        logger.info(f"🚀 Démarrage du scraping pour '{keyword}' ({max_pages} page(s))")
-        
-        data = []
+        logger.info(f"🚀 Démarrage scraping Amazon : '{keyword}' ({max_pages} pages)")
+        products = []
         
         with sync_playwright() as p:
             try:
-                # Lancement du navigateur
+                # Lancement navigateur avec anti-détection
                 browser = p.chromium.launch(
-                    headless=headless,
+                    headless=self.headless,
+                    slow_mo=self.slow_mo,
                     args=[
                         '--disable-blink-features=AutomationControlled',
-                        '--disable-dev-shm-usage',
-                        '--no-sandbox'
+                        '--disable-dev-shm-usage'
                     ]
                 )
                 
-                # Contexte avec user agent aléatoire
                 context = browser.new_context(
-                    user_agent=self._get_random_user_agent(),
+                    user_agent=random.choice(USER_AGENTS),
                     viewport={'width': 1920, 'height': 1080},
                     locale='fr-FR',
+                    timezone_id='Europe/Paris'
                 )
                 
-                # Ajout de scripts anti-détection
+                # Masquer webdriver
                 context.add_init_script("""
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined
+                    });
                 """)
                 
                 page = context.new_page()
                 
-                # URL de recherche
-                search_url = f"https://www.amazon.fr/s?k={keyword.replace(' ', '+')}"
-                logger.info(f"🌍 Navigation vers: {search_url}")
+                # URL avec tri par pertinence
+                base_url = f"https://www.amazon.fr/s?k={keyword.replace(' ', '+')}"
+                logger.info(f"🌍 Connexion à {base_url}")
                 
-                page.goto(search_url, timeout=self.config.PAGE_TIMEOUT)
-                self._accept_cookies(page)
+                page.goto(base_url, timeout=60000, wait_until='domcontentloaded')
+                self._handle_cookies_banner(page)
                 
-                # Scraping de chaque page
                 for current_page in range(1, max_pages + 1):
-                    logger.info(f"📄 Scraping page {current_page}/{max_pages}")
+                    logger.info(f"📄 Page {current_page}/{max_pages}")
+                    self.stats['pages_scraped'] += 1
+                    
+                    # Scroll intelligent
+                    self._smart_scroll(page)
                     
                     # Attendre le chargement des produits
                     try:
-                        page.wait_for_selector(
-                            'div[data-component-type="s-search-result"]',
-                            timeout=self.config.ELEMENT_TIMEOUT
-                        )
+                        page.wait_for_selector('div[data-asin]:not([data-asin=""])', timeout=10000)
                     except PlaywrightTimeout:
-                        logger.error("⏱️ Timeout: Les produits n'ont pas chargé")
+                        logger.error("Timeout : Produits non chargés")
                         break
                     
-                    # Scroll pour charger tous les éléments
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    time.sleep(1)
+                    # Récupérer tous les produits
+                    cards = page.locator('div[data-asin]:not([data-asin=""])').all()
+                    logger.info(f"   📦 {len(cards)} produits détectés")
                     
-                    # Récupérer les produits
-                    products = page.query_selector_all('div[data-component-type="s-search-result"]')
-                    logger.info(f"🔍 {len(products)} produits trouvés sur cette page")
-                    
-                    for idx, product in enumerate(products, 1):
-                        product_data = self._extract_product_data(product)
-                        if product_data:
-                            data.append(product_data.to_dict())
-                            self.products_scraped += 1
+                    for idx, card in enumerate(cards, 1):
+                        try:
+                            asin = card.get_attribute("data-asin")
+                            if not asin or len(asin) != 10:  # ASIN Amazon = 10 caractères
+                                continue
+                            
+                            product = self._extract_product_data(card, asin)
+                            if product:
+                                products.append(product)
+                                if idx % 10 == 0:  # Log tous les 10 produits
+                                    logger.info(f"   ✓ {idx}/{len(cards)} produits traités")
                         
-                        if idx % 10 == 0:
-                            logger.debug(f"  ✓ {idx}/{len(products)} produits traités")
+                        except Exception as e:
+                            logger.error(f"   ⚠️ Erreur produit #{idx}: {str(e)}")
+                            continue
                     
-                    # Pagination
+                    self.stats['total_products'] = len(products)
+                    logger.info(f"   💾 Total accumulé : {len(products)} produits")
+                    
+                    # PAGINATION
                     if current_page < max_pages:
                         try:
-                            next_button = page.locator("a.s-pagination-next")
-                            if next_button.is_visible() and not next_button.is_disabled():
-                                logger.info("➡️ Navigation vers la page suivante...")
-                                next_button.click()
-                                self._human_delay()
+                            _, page_delay, _ = self._get_random_delays()
+                            next_btn = page.locator("a.s-pagination-next")
+                            
+                            if next_btn.is_visible() and next_btn.is_enabled():
+                                logger.info(f"➡️  Passage à la page {current_page + 1}...")
+                                next_btn.click()
+                                time.sleep(page_delay)
                             else:
-                                logger.info("🛑 Pas de page suivante disponible")
+                                logger.warning("🛑 Bouton 'Suivant' introuvable - Fin de pagination")
                                 break
+                        
                         except Exception as e:
-                            logger.warning(f"⚠️ Erreur pagination: {e}")
+                            logger.error(f"Erreur pagination : {e}")
                             break
                 
                 browser.close()
-                
+                logger.info("🔒 Navigateur fermé")
+            
             except Exception as e:
-                logger.error(f"❌ Erreur critique: {e}", exc_info=True)
-                raise
+                logger.error(f"❌ Erreur critique : {str(e)}")
+                return pd.DataFrame()
         
-        # Création du DataFrame
-        df = pd.DataFrame(data)
+        # SAUVEGARDE DES DONNÉES
+        return self._save_data(products, keyword, save_json)
+    
+    def _save_data(self, products: List[Dict], keyword: str, save_json: bool) -> pd.DataFrame:
+        """Sauvegarde les données en CSV et optionnellement JSON"""
+        if not products:
+            logger.warning("❌ Aucun produit récupéré - Aucun fichier créé")
+            self._print_stats()
+            return pd.DataFrame()
         
-        logger.info(f"✅ Scraping terminé!")
-        logger.info(f"📊 {self.products_scraped} produits collectés")
-        logger.info(f"⚠️ {self.errors_count} erreurs rencontrées")
+        df = pd.DataFrame(products)
         
+        # Réorganiser les colonnes pour lisibilité
+        column_order = [
+            'date_scraping', 'asin', 'titre', 'prix', 'prix_brut',
+            'note', 'note_brute', 'nb_avis', 'nb_avis_brut',
+            'vendeur', 'prime', 'disponibilite', 'lien', 'image_url', 'source'
+        ]
+        df = df[[col for col in column_order if col in df.columns]]
+        
+        # Nom de fichier avec timestamp
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        safe_keyword = keyword.replace(' ', '_').replace('/', '_')
+        
+        # CSV
+        csv_filename = f"amazon_{safe_keyword}_{timestamp}.csv"
+        csv_path = DATA_DIR / csv_filename
+        df.to_csv(csv_path, index=False, encoding='utf-8')
+        logger.info(f"✅ CSV sauvegardé : {csv_path}")
+        
+        # JSON (backup avec métadonnées)
+        if save_json:
+            json_data = {
+                'metadata': {
+                    'keyword': keyword,
+                    'scraping_date': timestamp,
+                    'total_products': len(df),
+                    'stats': self.stats
+                },
+                'products': products
+            }
+            json_filename = f"amazon_{safe_keyword}_{timestamp}.json"
+            json_path = DATA_DIR / json_filename
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(json_data, f, ensure_ascii=False, indent=2)
+            logger.info(f"✅ JSON sauvegardé : {json_path}")
+        
+        self._print_stats()
         return df
     
-    def save_data(self, 
-                  df: pd.DataFrame, 
-                  keyword: str,
-                  formats: List[str] = ['csv', 'json', 'excel']) -> Dict[str, Path]:
-        """
-        Sauvegarde les données dans différents formats
-        
-        Args:
-            df: DataFrame à sauvegarder
-            keyword: Mot-clé de recherche (pour le nom du fichier)
-            formats: Liste des formats ('csv', 'json', 'excel')
-            
-        Returns:
-            Dictionnaire des chemins de fichiers créés
-        """
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_filename = f"amazon_{keyword.replace(' ', '_')}_{timestamp}"
-        
-        saved_files = {}
-        
-        try:
-            if 'csv' in formats:
-                csv_path = self.config.DATA_DIR / f"{base_filename}.csv"
-                df.to_csv(csv_path, index=False, encoding='utf-8')
-                saved_files['csv'] = csv_path
-                logger.info(f"💾 CSV sauvegardé: {csv_path}")
-            
-            if 'json' in formats:
-                json_path = self.config.DATA_DIR / f"{base_filename}.json"
-                df.to_json(json_path, orient='records', force_ascii=False, indent=2)
-                saved_files['json'] = json_path
-                logger.info(f"💾 JSON sauvegardé: {json_path}")
-            
-            if 'excel' in formats:
-                excel_path = self.config.DATA_DIR / f"{base_filename}.xlsx"
-                df.to_excel(excel_path, index=False, engine='openpyxl')
-                saved_files['excel'] = excel_path
-                logger.info(f"💾 Excel sauvegardé: {excel_path}")
-                
-        except Exception as e:
-            logger.error(f"❌ Erreur lors de la sauvegarde: {e}")
-            raise
-        
-        return saved_files
+    def _print_stats(self):
+        """Affiche les statistiques du scraping"""
+        logger.info("\n" + "="*60)
+        logger.info("📊 STATISTIQUES DU SCRAPING")
+        logger.info("="*60)
+        logger.info(f"Pages scrapées       : {self.stats['pages_scraped']}")
+        logger.info(f"Produits trouvés     : {self.stats['total_products']}")
+        logger.info(f"Extractions réussies : {self.stats['successful_extractions']}")
+        logger.info(f"Extractions échouées : {self.stats['failed_extractions']}")
+        if self.stats['total_products'] > 0:
+            success_rate = (self.stats['successful_extractions'] / 
+                          (self.stats['successful_extractions'] + self.stats['failed_extractions'])) * 100
+            logger.info(f"Taux de succès       : {success_rate:.1f}%")
+        logger.info("="*60 + "\n")
 
 
 def main():
-    """Fonction principale d'exécution"""
+    """Fonction principale pour tester le scraper"""
     
     # Configuration
-    search_term = "pc portable gamer"
-    max_pages = 2
+    scraper = AmazonScraper(
+        headless=False,  # Mettre True en production
+        slow_mo=100      # Ralentissement pour paraître humain
+    )
     
-    # Création du scraper
-    scraper = AmazonScraper()
+    # Exemple 1 : Scraping simple
+    print("\n🎯 Test 1 : smartphone (2 pages)")
+    df_pcs = scraper.scrape("smartphone", max_pages=2, save_json=True)
     
-    try:
-        # Scraping
-        df = scraper.scrape_amazon(
-            keyword=search_term,
-            max_pages=max_pages,
-            headless=False  # Mettre True pour mode invisible
-        )
+    if not df_pcs.empty:
+        print("\n📋 Aperçu des données :")
+        print(df_pcs[['titre', 'prix', 'note', 'nb_avis', 'vendeur']].head(10))
         
-        # Affichage des statistiques
-        print("\n" + "="*80)
-        print("📊 STATISTIQUES DU SCRAPING")
-        print("="*80)
-        print(f"Produits collectés: {len(df)}")
-        print(f"Colonnes: {', '.join(df.columns)}")
-        print(f"\nPremiers produits:")
-        print(df.head(10).to_string())
-        
-        if not df.empty:
-            print(f"\n💰 Prix moyen: {df['prix'].apply(lambda x: scraper._extract_price(x)).mean():.2f}€")
-            print(f"⭐ Note moyenne: {df['note'].mean():.2f}/5")
-            print(f"🏆 {df['prime'].sum()} produits Prime ({df['prime'].sum()/len(df)*100:.1f}%)")
-        
-        # Sauvegarde
-        saved_files = scraper.save_data(df, search_term, formats=['csv', 'json', 'excel'])
-        
-        print("\n" + "="*80)
-        print("📁 FICHIERS CRÉÉS")
-        print("="*80)
-        for format_type, filepath in saved_files.items():
-            print(f"{format_type.upper()}: {filepath}")
-        
-        return df
-        
-    except Exception as e:
-        logger.error(f"❌ Erreur dans main(): {e}", exc_info=True)
-        return None
+        print("\n📈 Statistiques prix :")
+        print(df_pcs['prix'].describe())
+    
+    # Exemple 2 : Autre recherche
+    # df_phones = scraper.scrape("iphone 15", max_pages=1)
 
 
 if __name__ == "__main__":
-    df_result = main()
+    main()
