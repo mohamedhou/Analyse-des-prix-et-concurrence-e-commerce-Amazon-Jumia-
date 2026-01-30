@@ -36,13 +36,13 @@ with st.sidebar:
     # Options de navigation
     page_options = {
         "📊 Dashboard Global": "1_dashboard",
-        "💰 Analyse Prix vs Marques": "2_prix_marques", 
-        "😊 Analyse NLP & Sentiments": "3_sentiment_nlp",
-        "🎯 Recommandations Produits": "4_recommandation"
+        "💰 Analyse Prix vs Marques": "2_prix", 
+        "😊 Analyse NLP & Sentiments": "3_sentiment",
+        "🎯 Recommandations Produits": "4_reco"
     }
     
     for page_name, page_file in page_options.items():
-        if st.button(page_name, use_container_width=True):
+        if st.button(page_name, width='stretch'):
             st.switch_page(f"pages/{page_file}.py")
     
     st.markdown("---")

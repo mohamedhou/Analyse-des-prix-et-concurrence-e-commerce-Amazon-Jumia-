@@ -82,8 +82,10 @@ def plot_price_boxplot_by_brand(df, top_n=10):
         x='brand',
         y='prix',
         order=brand_order,
+        hue='brand',  # Ajouté pour éviter le warning
         ax=ax,
-        palette='viridis'
+        palette='viridis',
+        legend=False  # Désactivé pour éviter la légende en double
     )
     
     ax.set_title(f'Distribution des Prix par Marque (Top {top_n})', fontsize=16, fontweight='bold')
@@ -120,7 +122,6 @@ def plot_sentiment_vs_price(df, top_n=8):
     df_plot['brand_group'] = df_plot['brand'].apply(
         lambda x: x if x in top_brands else 'Autres marques'
     )
-    
     # Utiliser nb_avis si disponible, sinon une taille fixe
     size_col = 'nb_avis' if 'nb_avis' in df.columns else None
     
@@ -140,9 +141,20 @@ def plot_sentiment_vs_price(df, top_n=8):
         color_discrete_sequence=px.colors.qualitative.Set3
     )
     
-    # Ajouter une ligne de régression
-    z = np.polyfit(df['sentiment_score'].dropna(), df['prix'].dropna(), 1)
-    p = np.poly1d(z)
+    # Ajouter une ligne de régression avec vérification
+    import warnings
+    x_vals = df['sentiment_score'].dropna()
+    y_vals = df['prix'].dropna()
+    
+    if len(x_vals) > 1 and x_vals.std() > 0:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", np.RankWarning)
+            z = np.polyfit(x_vals, y_vals, 1)
+        p = np.poly1d(z)
+    else:
+        # Si pas assez de données, ligne horizontale à la moyenne
+        mean_val = y_vals.mean() if len(y_vals) > 0 else 0
+        p = lambda x: np.full_like(x, mean_val)
     
     x_range = np.linspace(df['sentiment_score'].min(), df['sentiment_score'].max(), 100)
     fig.add_trace(
@@ -268,7 +280,8 @@ def plot_sentiment_distribution(df):
     brand_order = df_brands.groupby('brand')['sentiment_score'].mean().sort_values(ascending=False).index
     
     sns.boxplot(data=df_brands, x='brand', y='sentiment_score', 
-                order=brand_order, ax=axes[1], palette='coolwarm')
+                order=brand_order, hue='brand',  # Ajouté pour éviter le warning
+                ax=axes[1], palette='coolwarm', legend=False)
     axes[1].set_title('Scores de Sentiment par Marque (Top 8)', fontsize=16, fontweight='bold')
     axes[1].set_xlabel('Marque', fontsize=14)
     axes[1].set_ylabel('Score de Sentiment', fontsize=14)
@@ -302,11 +315,24 @@ def plot_price_vs_features(df):
     plt.colorbar(scatter1, ax=axes[0]).set_label('Score de Sentiment', rotation=270, labelpad=15)
     
     # 2. Prix vs Nombre d'avis
-    axes[1].scatter(df['nombre_avis'], df['prix'], alpha=0.6, color='teal', s=50)
-    axes[1].set_title('Prix vs Nombre d\'Avis', fontsize=14, fontweight='bold')
-    axes[1].set_xlabel('Nombre d\'Avis', fontsize=12)
-    axes[1].set_ylabel('Prix (€)', fontsize=12)
-    axes[1].set_xscale('log')  # Échelle logarithmique pour mieux voir
+    if 'nb_avis' in df.columns:
+        valid_avis = df['nb_avis'].dropna()
+        if len(valid_avis) > 0 and (valid_avis > 0).any():
+            axes[1].scatter(df['nb_avis'], df['prix'], alpha=0.6, color='teal', s=50)
+            axes[1].set_title('Prix vs Nombre d\'Avis', fontsize=14, fontweight='bold')
+            axes[1].set_xlabel('Nombre d\'Avis', fontsize=12)
+            axes[1].set_ylabel('Prix (€)', fontsize=12)
+            # Only apply log scale if we have positive values
+            if (valid_avis > 0).all():
+                axes[1].set_xscale('log')  # Échelle logarithmique pour mieux voir
+        else:
+            axes[1].text(0.5, 0.5, 'Données d\'avis non disponibles\nou toutes nulles', 
+                        ha='center', va='center', transform=axes[1].transAxes)
+            axes[1].set_title('Prix vs Nombre d\'Avis (N/A)', fontsize=14, fontweight='bold')
+    else:
+        axes[1].text(0.5, 0.5, 'Colonne nb_avis non trouvée', 
+                    ha='center', va='center', transform=axes[1].transAxes)
+        axes[1].set_title('Prix vs Nombre d\'Avis (N/A)', fontsize=14, fontweight='bold')
     
     # 3. Distribution des prix par catégorie (top 5)
     top_categories = df['category'].value_counts().head(5).index
@@ -322,7 +348,9 @@ def plot_price_vs_features(df):
     axes[2].legend()
     
     # 4. Corrélation heatmap
-    numeric_cols = ['prix', 'note', 'nombre_avis', 'sentiment_score']
+    numeric_cols = ['prix', 'note', 'nb_avis', 'sentiment_score']
+    # Filter to only include columns that exist in the dataframe
+    numeric_cols = [col for col in numeric_cols if col in df.columns]
     corr_data = df[numeric_cols].corr()
     
     im = axes[3].imshow(corr_data, cmap='coolwarm', vmin=-1, vmax=1)

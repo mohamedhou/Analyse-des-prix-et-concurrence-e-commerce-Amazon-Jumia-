@@ -142,7 +142,7 @@ st.header("💰 Relation Sentiment vs Prix")
 
 st.plotly_chart(
     plot_sentiment_vs_price(filtered_df),
-    use_container_width=True
+    width='stretch'
 )
 
 # Interprétation de la corrélation
@@ -211,7 +211,7 @@ with ranking_cols[1]:
 # Tableau détaillé
 st.dataframe(
     brand_sentiment_sorted,
-    use_container_width=True,
+    width='stretch',
     height=400
 )
 
@@ -239,7 +239,7 @@ with tab1:
             'brand': 'Marque Dominante'
         })
         
-        st.dataframe(cluster_analysis, use_container_width=True)
+        st.dataframe(cluster_analysis, width='stretch')
         
         # Interprétation
         st.markdown("""
@@ -304,7 +304,7 @@ with tab3:
         categorie_input = st.selectbox("Catégorie:", 
                                       options=filtered_df['category'].unique() if 'category' in filtered_df.columns else [])
     
-    if st.button("🎯 Estimer le sentiment", use_container_width=True):
+    if st.button("🎯 Estimer le sentiment", width='stretch'):
         # Estimation simple basée sur les moyennes
         marque_data = filtered_df[filtered_df['brand'] == marque_input]
         

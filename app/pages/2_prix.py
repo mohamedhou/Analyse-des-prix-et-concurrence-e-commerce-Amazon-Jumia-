@@ -122,7 +122,7 @@ if 'note' in filtered_df.columns:
 # Afficher le tableau
 st.dataframe(
     brand_stats.sort_values('💰 Prix Moyen', ascending=False),
-    use_container_width=True,
+    width='stretch',
     height=400
 )
 
@@ -159,7 +159,7 @@ with col2:
     
     # Bubble chart positionnement
     fig_pos = plot_brand_positioning(filtered_df)
-    st.plotly_chart(fig_pos, use_container_width=True)
+    st.plotly_chart(fig_pos, width='stretch')
     
     with st.expander("🎯 Stratégies de positionnement"):
         st.markdown("""
@@ -237,7 +237,7 @@ if selected_brand:
             'category': 'Catégorie'
         })
         
-        st.dataframe(top_produits, use_container_width=True, hide_index=True)
+        st.dataframe(top_produits, width='stretch', hide_index=True)
         
         # Distribution des prix de la marque
         st.subheader("Distribution des prix")

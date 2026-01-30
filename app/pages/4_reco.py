@@ -363,7 +363,7 @@ if not scored_df.empty:
                 data=csv,
                 file_name="recommandations_ecommerce.csv",
                 mime="text/csv",
-                use_container_width=True
+                width='stretch'
             )
         
         elif export_format == "Excel":
@@ -377,7 +377,7 @@ if not scored_df.empty:
                 data=json_str,
                 file_name="recommandations_ecommerce.json",
                 mime="application/json",
-                use_container_width=True
+                width='stretch'
             )
 
 # Section 2: Alternatives et comparaisons
