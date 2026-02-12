@@ -63,9 +63,9 @@ with st.sidebar:
     # Navigation avec badges
     pages = {
         "📊 Dashboard Global": "1_dashboard",
-        "💰 Prix vs Marques": "2_prix_marques", 
-        "😊 NLP & Sentiments": "3_sentiment_nlp",
-        "🎯 Recommandations": "4_recommandation"
+        "💰 Prix vs Marques": "2_prix", 
+        "😊 NLP & Sentiments": "3_sentiment",
+        "🎯 Recommandations": "4_reco"
     }
     
     for page_name, page_file in pages.items():
