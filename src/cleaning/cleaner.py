@@ -56,35 +56,36 @@ class DataCleaner:
         return 'Unknown'
 
     def extract_category(self, text):
-        """Classification ULTRA PRÉCISE - VERSION CORRIGÉE"""
+        """Classification ULTRA PRÉCISE - VERSION FINALE"""
         if pd.isna(text):
             return 'unknown'
 
         text_lower = str(text).lower()
 
-        # ===== LISTE NOIRE ÉTENDUE (Mise à jour critique) =====
+        # ===== LISTE NOIRE ULTRA RENFORCÉE =====
         accessory_keywords = [
             # Protection & Coques
             'coque', 'housse', 'étui', 'case', 'cover', 'shell', 'bumper',
-            'protection', 'silicone', 'rigid', 'transparent',
+            'protection', 'silicone', 'rigid', 'transparent', 'pochette',
             
             # Écran & Film
             'film', 'verre trempé', 'protecteur', 'screen protector', 
             'tempered glass', 'hydrogel', 'pellicule',
             
-            # Chargement & Câbles
+            # Chargement & Batteries (Capture "Apple Batterie MagSafe")
             'chargeur', 'câble', 'cable', 'adaptateur', 'adapter', 
-            'power bank', 'batterie externe', 'wireless charger',
-            'charging', 'fast charge', 'plug',
+            'power bank', 'batterie externe', 'batterie', 'wireless charger',
+            'charging', 'fast charge', 'plug', 'magsafe', 'powerbank',
             
-            # Audio (AJOUT CRITIQUE : 'buds', 'pods')
+            # Audio (Capture "DJI Mic")
             'écouteur', 'casque', 'headphone', 'earphone', 'earbud',
             'airpod', 'galaxy buds', 'buds', 'pods', 'speakers', 'enceinte',
+            'microphone', 'mic', 'micro', 'cravate', 'sans fil',
             
-            # Supports & Accessoires Photo
+            # Supports & Stabilisation (Capture "Stabilisateur", "Cardan")
             'trépied', 'tripod', 'gorillapod', 'selfie stick', 'perche',
             'support', 'holder', 'stand', 'mount', 'grip',
-            'lentille', 'lens', 'objectif',
+            'stabilisateur', 'cardan', 'gimbal', 'steadicam',
             
             # Montres & Bracelets
             'smart watch', 'smartwatch', 'montre connectée', 'watch',
@@ -95,7 +96,7 @@ class DataCleaner:
             
             # Divers
             'stylet', 's pen', 'apple pencil', 'moniteur', 'kit', 'pack',
-            'sim card', 'outil', 'remplacement', 'pièce'
+            'sim card', 'outil', 'remplacement', 'pièce', 'stick', 'dock'
         ]
         
         # ===== VÉRIFICATION STRICTE =====
