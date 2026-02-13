@@ -1,94 +1,87 @@
-"""
-Module de chargement des données
-Gestion centralisée du chargement des données traitées
-"""
-
 import pandas as pd
-import os
 from pathlib import Path
-import streamlit as st
+import sys
 
-@st.cache_data
+# Trouver la racine du projet (remonter de app/utils/ à la racine)
+# On suppose que la structure est : racine/app/utils/ce_fichier.py
+CURRENT_DIR = Path(__file__).resolve()
+PROJECT_ROOT = CURRENT_DIR.parent.parent.parent 
+DATA_PATH = PROJECT_ROOT / "data" / "processed" / "products_cleaned.csv"
+
 def load_processed_data():
-    """
-    Charge le fichier final_products.csv depuis data/processed/
-    
-    Returns:
-        pd.DataFrame: DataFrame contenant les données des produits
-    """
+    """Charge le dataset nettoyé pour l'application"""
     try:
-        # Déterminer le chemin du fichier
-        base_path = Path(__file__).parent.parent.parent
-        data_path = base_path / "data" / "processed" / "products_cleaned.csv"
+        if not DATA_PATH.exists():
+            print(f"❌ Fichier introuvable : {DATA_PATH}")
+            return pd.DataFrame()
+            
+        df = pd.read_csv(DATA_PATH)
+        print(f"✅ Données brutes chargées : {len(df)} lignes")
         
-        # Vérifier si le fichier existe
-        if not data_path.exists():
-            # Essayer un chemin alternatif
-            data_path = base_path / "processed" / "products_cleaned.csv"
-            if not data_path.exists():
-                raise FileNotFoundError(f"Fichier non trouvé: {data_path}")
+        # --- FORCE LE FILTRE SMARTPHONE ---
+        if 'category' in df.columns:
+            initial_count = len(df)
+            df = df[df['category'] == 'smartphone']
+            removed_count = initial_count - len(df)
+            if removed_count > 0:
+                print(f"🧹 Nettoyage App : {removed_count} produits non-smartphones ignorés.")
         
-        # Charger les données
-        df = pd.read_csv(data_path)
+        # --- GESTION DES COLONNES MANQUANTES (FALLBACK NLP) ---
+        # Si le NLP n'a pas été lancé, on utilise la note client comme substitut
+        if 'sentiment_score' not in df.columns:
+            print("⚠️ Colonne 'sentiment_score' absente (NLP non exécuté).")
+            if 'note' in df.columns:
+                # On utilise la note client comme substitut du sentiment
+                df['sentiment_score'] = df['note']
+                print("   -> Utilisation de la colonne 'note' comme substitut.")
+            else:
+                # Si pas de note non plus, on met neutre
+                df['sentiment_score'] = 3.0
+                print("   -> Valeur neutre (3.0) attribuée par défaut.")
         
-        # Nettoyage basique des colonnes
-        if 'prix' in df.columns:
-            df['prix'] = pd.to_numeric(df['prix'], errors='coerce')
-        if 'note' in df.columns:
-            df['note'] = pd.to_numeric(df['note'], errors='coerce')
-        if 'sentiment_score' in df.columns:
-            df['sentiment_score'] = pd.to_numeric(df['sentiment_score'], errors='coerce')
+        # Idem pour le cluster si nécessaire pour l'affichage
+        if 'cluster' not in df.columns:
+            df['cluster'] = 0
+
+        print(f"✅ Données finales pour l'App : {len(df)} lignes (Smartphones uniquement)")
         
-        # Nettoyer les marques
-        if 'brand' in df.columns:
-            df['brand'] = df['brand'].astype(str).str.strip().str.title()
-        
+        # Vérification des colonnes
+        required_cols = ['titre', 'prix', 'note', 'brand', 'source']
+        for col in required_cols:
+            if col not in df.columns:
+                print(f"⚠️ Colonne manquante : {col}")
+                
         return df
-    
     except Exception as e:
-        st.error(f"Erreur lors du chargement des données: {str(e)}")
-        # Retourner un DataFrame vide en cas d'erreur
+        print(f"❌ Erreur lors du chargement : {e}")
         return pd.DataFrame()
+def filter_data(df, brand_filter=None, category_filter=None, sentiment_filter=(1.0, 5.0)):
+    """Filtre le dataframe selon les critères de la sidebar"""
+    if df.empty:
+        return df
+        
+    # Filtre Marque
+    if brand_filter:
+        df = df[df['brand'].isin(brand_filter)]
+    
+    # Filtre Catégorie
+    if category_filter:
+        df = df[df['category'].isin(category_filter)]
+        
+    # Filtre Sentiment (si la colonne existe)
+    if 'sentiment_score' in df.columns:
+        df = df[df['sentiment_score'].between(sentiment_filter[0], sentiment_filter[1])]
+        
+    return df
 
 def get_brand_list(df):
-    """Retourne la liste des marques uniques"""
-    if not df.empty and 'brand' in df.columns:
-        return sorted(df['brand'].dropna().unique().tolist())
+    """Retourne la liste des marques uniques triées"""
+    if 'brand' in df.columns:
+        return sorted(df['brand'].unique())
     return []
 
 def get_category_list(df):
     """Retourne la liste des catégories uniques"""
-    if not df.empty and 'category' in df.columns:
-        return sorted(df['category'].dropna().unique().tolist())
+    if 'category' in df.columns:
+        return sorted(df['category'].unique())
     return []
-
-def filter_data(df, brand_filter=None, category_filter=None, sentiment_filter=None):
-    """
-    Filtre les données selon les critères spécifiés
-    
-    Args:
-        df: DataFrame source
-        brand_filter: Liste des marques à inclure
-        category_filter: Liste des catégories à inclure
-        sentiment_filter: Tuple (min, max) pour le score de sentiment
-    
-    Returns:
-        pd.DataFrame: DataFrame filtré
-    """
-    filtered_df = df.copy()
-    
-    # Appliquer les filtres
-    if brand_filter and len(brand_filter) > 0:
-        filtered_df = filtered_df[filtered_df['brand'].isin(brand_filter)]
-    
-    if category_filter and len(category_filter) > 0:
-        filtered_df = filtered_df[filtered_df['category'].isin(category_filter)]
-    
-    if sentiment_filter and len(sentiment_filter) == 2:
-        min_sent, max_sent = sentiment_filter
-        filtered_df = filtered_df[
-            (filtered_df['sentiment_score'] >= min_sent) & 
-            (filtered_df['sentiment_score'] <= max_sent)
-        ]
-    
-    return filtered_df

@@ -11,7 +11,6 @@ from typing import Optional, Dict, List
 import os
 
 # --- CONFIGURATION AUTOMATIQUE DES CHEMINS (VERSION BLINDÉE) ---
-# Copié depuis ton scraper Amazon pour la compatibilité
 current_path = Path(__file__).resolve()
 project_root = current_path.parent
 found_root = False
@@ -60,6 +59,11 @@ class JumiaScraper:
             'pages_scraped': 0
         }
     
+    def _get_random_delays(self) -> tuple:
+        """Génère des délais aléatoires"""
+        scroll_delay = random.uniform(1.5, 3.0)
+        return scroll_delay
+    
     def _clean_price(self, price_text: str) -> Optional[float]:
         """Convertit '1 500.00 Dhs' en 1500.00"""
         if not price_text:
@@ -84,8 +88,6 @@ class JumiaScraper:
     def _handle_popup(self, page):
         """Ferme la pop-up Newsletter de Jumia si elle apparaît"""
         try:
-            # Sélecteur typique de la croix de fermeture sur Jumia
-            # Note: Jumia change souvent ce sélecteur, on essaie les plus courants
             popup_closers = [
                 "button[aria-label='newsletter_popup_close-cta']",
                 "#pop button.cls",
@@ -101,6 +103,23 @@ class JumiaScraper:
         except:
             pass
 
+    def _smart_scroll(self, page):
+        """
+        Scroll intelligent sécurisé (Identique à Amazon)
+        """
+        try:
+            page.wait_for_selector("body", timeout=5000)
+            scroll_delay = self._get_random_delays()
+            
+            body_exists = page.evaluate("() => document.body")
+            if body_exists:
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2);")
+                time.sleep(scroll_delay)
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(scroll_delay)
+        except Exception as e:
+            logger.warning(f"Erreur scroll Jumia : {e}")
+
     def scrape(self, keyword: str, max_pages: int = 1) -> pd.DataFrame:
         logger.info(f"🚀 Démarrage scraping Jumia : '{keyword}'")
         products = []
@@ -109,9 +128,7 @@ class JumiaScraper:
             browser = p.chromium.launch(headless=self.headless, slow_mo=self.slow_mo)
             page = browser.new_page()
             
-            # URL Jumia Maroc (catalog mode)
             base_url = f"https://www.jumia.ma/catalog/?q={keyword.replace(' ', '+')}"
-            
             logger.info(f"🌍 Connexion à {base_url}")
             page.goto(base_url, timeout=60000)
             
@@ -121,16 +138,12 @@ class JumiaScraper:
                 logger.info(f"📄 Page {current_page}/{max_pages}")
                 self.stats['pages_scraped'] += 1
                 
-                # Scroll basique pour charger les images
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
-                time.sleep(1)
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                time.sleep(2)
+                # Scroll sécurisé
+                self._smart_scroll(page)
+                time.sleep(1) # Pause supplémentaire pour Jumia qui est parfois lent à charger les images
                 
-                # Sélecteur des cartes produits sur Jumia (article.prd)
+                # Sélecteurs Jumia
                 cards = page.locator("article.prd._fb.col.c-prd").all()
-                
-                # Si pas trouvé, essayer le sélecteur générique
                 if not cards:
                     cards = page.locator("article.prd").all()
                 
@@ -144,7 +157,7 @@ class JumiaScraper:
                         
                         relative_link = link_el.get_attribute("href")
                         full_link = f"https://www.jumia.ma{relative_link}"
-                        data_id = card.get_attribute("data-id") or relative_link # Fallback ID
+                        data_id = card.get_attribute("data-id") or relative_link
                         
                         # Titre
                         title = "Inconnu"
@@ -156,20 +169,16 @@ class JumiaScraper:
                         if card.locator("div.prc").count():
                             price_raw = card.locator("div.prc").first.inner_text()
                             
-                        # Note (Rating)
+                        # Note
                         rating_raw = None
-                        reviews_count = None
-                        
                         if card.locator("div.stars._s").count():
-                            rating_raw = card.locator("div.stars._s").first.inner_text() # ex: "4.5 out of 5"
-                        
-                        # Jumia n'affiche pas toujours le nombre d'avis sur la carte, 
-                        # parfois c'est juste " (45)" à côté des étoiles
+                            rating_raw = card.locator("div.stars._s").first.inner_text()
                         
                         # Nettoyage
                         price = self._clean_price(price_raw)
                         rating = self._extract_rating(rating_raw)
                         
+                        # On garde le produit si on a un titre et un prix
                         if title != "Inconnu" and price:
                             products.append({
                                 "date_scraping": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -178,13 +187,13 @@ class JumiaScraper:
                                 "prix": price,
                                 "prix_brut": price_raw,
                                 "note": rating,
+                                "nb_avis": 0, # Jumia n'affiche pas le nb d'avis sur la liste facilement
                                 "lien": full_link,
                                 "id_produit": data_id
                             })
                             self.stats['successful_extractions'] += 1
                             
                     except Exception as e:
-                        # logger.warning(f"Erreur produit: {e}") 
                         self.stats['failed_extractions'] += 1
                         continue
                 
@@ -201,7 +210,7 @@ class JumiaScraper:
             
             browser.close()
 
-        # Sauvegarde
+        # Sauvegarde individuelle par mot-clé
         if products:
             df = pd.DataFrame(products)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -216,8 +225,39 @@ class JumiaScraper:
             logger.warning("❌ Aucun produit trouvé.")
             return pd.DataFrame()
 
+def main():
+    # ⚠️ headless=False pour vérifier le bon fonctionnement
+    scraper = JumiaScraper(headless=False, slow_mo=100)
+    
+    # Liste des mots-clés (cohérente avec Amazon)
+    keywords = ["smartphone", "iphone", "samsung galaxy", "android phone", "xiaomi"]
+    
+    all_dfs = [] 
+
+    for keyword in keywords:
+        print(f"\n🚀 Lancement du scraping Jumia pour : {keyword}")
+        # On limite à 5 pages par mot-clé 
+        df = scraper.scrape(keyword, max_pages=5)
+        
+        if not df.empty:
+            print(f"✅ {len(df)} produits récupérés pour '{keyword}'")
+            all_dfs.append(df)
+        else:
+            print(f"⚠️ Aucun produit pour '{keyword}'")
+    
+    # Fusionner tous les résultats
+    if all_dfs:
+        final_df = pd.concat(all_dfs, ignore_index=True)
+        
+        # Sauvegarde finale
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_path = DATA_DIR / f"jumia_global_{timestamp}.csv"
+        final_df.to_csv(output_path, index=False, encoding='utf-8')
+        
+        print(f"\n✅ TERMINÉ ! Total de produits récupérés : {len(final_df)}")
+        print(f"📁 Fichier sauvegardé : {output_path}")
+    else:
+        print("❌ Aucun produit récupéré.")
+
 if __name__ == "__main__":
-    # Test pour les téléphones
-    scraper = JumiaScraper(headless=False)
-    # On cherche "smartphone" sur 2 pages
-    scraper.scrape("smartphone", max_pages=2)
+    main()

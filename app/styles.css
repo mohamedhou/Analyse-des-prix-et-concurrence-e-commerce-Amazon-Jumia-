@@ -365,7 +365,7 @@ p {
 .stDataFrame table {
     width: 100%;
     border-collapse: collapse;
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-base);
 }
 
 .stDataFrame th {
@@ -497,6 +497,29 @@ p {
     border-color: var(--primary-500);
     box-shadow: 0 0 0 3px rgb(59 130 246 / 0.1);
     outline: none;
+}
+
+/* Selectbox dropdown styling */
+.stSelectbox [data-baseweb="menu"] {
+    background: white !important;
+    border: 1px solid var(--gray-300) !important;
+    border-radius: var(--radius-md) !important;
+    box-shadow: var(--shadow-lg) !important;
+    z-index: 1000 !important;
+}
+
+.stSelectbox [data-baseweb="option"] {
+    color: var(--gray-800) !important;
+    padding: var(--spacing-2) var(--spacing-4) !important;
+    background: white !important;
+}
+
+.stSelectbox [data-baseweb="option"]:hover {
+    background: var(--primary-50) !important;
+}
+
+.stSelectbox [data-baseweb="option"][aria-selected="true"] {
+    background: var(--primary-100) !important;
 }
 
 /* ===== ALERTS - CLEAN ===== */

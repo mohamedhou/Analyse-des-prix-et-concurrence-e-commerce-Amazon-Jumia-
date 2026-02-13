@@ -1,8 +1,3 @@
-"""
-Module de visualisations
-Fonctions pour créer des graphiques standardisés
-"""
-
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
@@ -10,6 +5,20 @@ import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 from matplotlib import cm
+from pathlib import Path 
+# ⚠️ SUPPRIMÉ : from numpy.polynomial.polynomial import RankWarning
+
+import streamlit as st
+
+# Charger le CSS
+def load_css():
+    css_path = Path(__file__).parent.parent / "styles.css"
+    if css_path.exists():
+        with open(css_path) as f:
+            st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+
+load_css()
+
 
 # Configuration des styles
 plt.style.use('seaborn-v0_8-whitegrid')
@@ -82,10 +91,10 @@ def plot_price_boxplot_by_brand(df, top_n=10):
         x='brand',
         y='prix',
         order=brand_order,
-        hue='brand',  # Ajouté pour éviter le warning
+        hue='brand',
         ax=ax,
         palette='viridis',
-        legend=False  # Désactivé pour éviter la légende en double
+        legend=False
     )
     
     ax.set_title(f'Distribution des Prix par Marque (Top {top_n})', fontsize=16, fontweight='bold')
@@ -109,7 +118,7 @@ def plot_sentiment_vs_price(df, top_n=8):
     
     Args:
         df: DataFrame
-        top_n: Nombre de marques à afficher distinctement
+        top_n: Nombre de marques à afficher distinctément
     
     Returns:
         plotly.graph_objects.Figure: Figure Plotly interactive
@@ -148,7 +157,8 @@ def plot_sentiment_vs_price(df, top_n=8):
     
     if len(x_vals) > 1 and x_vals.std() > 0:
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore", np.RankWarning)
+            # ⚠️ CORRECTION ICI : Utilisation de la chaîne "RankWarning"
+            warnings.simplefilter("ignore", "RankWarning")
             z = np.polyfit(x_vals, y_vals, 1)
         p = np.poly1d(z)
     else:
@@ -280,7 +290,7 @@ def plot_sentiment_distribution(df):
     brand_order = df_brands.groupby('brand')['sentiment_score'].mean().sort_values(ascending=False).index
     
     sns.boxplot(data=df_brands, x='brand', y='sentiment_score', 
-                order=brand_order, hue='brand',  # Ajouté pour éviter le warning
+                order=brand_order, hue='brand',
                 ax=axes[1], palette='coolwarm', legend=False)
     axes[1].set_title('Scores de Sentiment par Marque (Top 8)', fontsize=16, fontweight='bold')
     axes[1].set_xlabel('Marque', fontsize=14)
@@ -324,7 +334,7 @@ def plot_price_vs_features(df):
             axes[1].set_ylabel('Prix (€)', fontsize=12)
             # Only apply log scale if we have positive values
             if (valid_avis > 0).all():
-                axes[1].set_xscale('log')  # Échelle logarithmique pour mieux voir
+                axes[1].set_xscale('log')
         else:
             axes[1].text(0.5, 0.5, 'Données d\'avis non disponibles\nou toutes nulles', 
                         ha='center', va='center', transform=axes[1].transAxes)
@@ -338,35 +348,43 @@ def plot_price_vs_features(df):
     top_categories = df['category'].value_counts().head(5).index
     df_cat = df[df['category'].isin(top_categories)]
     
-    for i, category in enumerate(top_categories):
+    has_data = False
+    for category in top_categories:
         cat_data = df_cat[df_cat['category'] == category]['prix'].dropna()
-        axes[2].hist(cat_data, bins=20, alpha=0.5, label=category)
+        if not cat_data.empty:
+            axes[2].hist(cat_data, bins=20, alpha=0.5, label=category)
+            has_data = True
     
     axes[2].set_title('Distribution des Prix par Catégorie (Top 5)', fontsize=14, fontweight='bold')
     axes[2].set_xlabel('Prix (€)', fontsize=12)
     axes[2].set_ylabel('Fréquence', fontsize=12)
-    axes[2].legend()
+    
+    if has_data:
+        axes[2].legend()
     
     # 4. Corrélation heatmap
     numeric_cols = ['prix', 'note', 'nb_avis', 'sentiment_score']
-    # Filter to only include columns that exist in the dataframe
     numeric_cols = [col for col in numeric_cols if col in df.columns]
-    corr_data = df[numeric_cols].corr()
     
-    im = axes[3].imshow(corr_data, cmap='coolwarm', vmin=-1, vmax=1)
-    axes[3].set_title('Matrice de Corrélation', fontsize=14, fontweight='bold')
-    axes[3].set_xticks(range(len(numeric_cols)))
-    axes[3].set_yticks(range(len(numeric_cols)))
-    axes[3].set_xticklabels(numeric_cols, rotation=45)
-    axes[3].set_yticklabels(numeric_cols)
-    
-    # Ajouter les valeurs de corrélation
-    for i in range(len(numeric_cols)):
-        for j in range(len(numeric_cols)):
-            text = axes[3].text(j, i, f'{corr_data.iloc[i, j]:.2f}',
-                           ha="center", va="center", color="black", fontsize=10)
-    
-    plt.colorbar(im, ax=axes[3]).set_label('Corrélation', rotation=270, labelpad=15)
+    if numeric_cols:
+        corr_data = df[numeric_cols].corr()
+        
+        im = axes[3].imshow(corr_data, cmap='coolwarm', vmin=-1, vmax=1)
+        axes[3].set_title('Matrice de Corrélation', fontsize=14, fontweight='bold')
+        axes[3].set_xticks(range(len(numeric_cols)))
+        axes[3].set_yticks(range(len(numeric_cols)))
+        axes[3].set_xticklabels(numeric_cols, rotation=45)
+        axes[3].set_yticklabels(numeric_cols)
+        
+        for i in range(len(numeric_cols)):
+            for j in range(len(numeric_cols)):
+                text = axes[3].text(j, i, f'{corr_data.iloc[i, j]:.2f}',
+                               ha="center", va="center", color="black", fontsize=10)
+        
+        plt.colorbar(im, ax=axes[3]).set_label('Corrélation', rotation=270, labelpad=15)
+    else:
+        axes[3].text(0.5, 0.5, 'Pas de données numériques pour la corrélation', 
+                     ha='center', va='center', transform=axes[3].transAxes)
     
     plt.tight_layout()
     return fig
